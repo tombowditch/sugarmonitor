@@ -45,7 +45,7 @@ func main() {
 
 		logrus.WithField("mmol", mmol).Info("got blood sugar")
 
-		if mmol < 5.0 || mmol > 12.0 || true {
+		if mmol < 5.0 || mmol > 12.0 {
 			logrus.WithField("mmol", mmol).Info("alerting")
 
 			if ackTime != nil {
