@@ -1,9 +1,14 @@
 package main
 
 import (
+	"bytes"
 	"embed"
 	_ "embed"
+	"encoding/json"
+	"fmt"
+	"io/ioutil"
 	"net/http"
+	"os"
 	"time"
 
 	"github.com/faiface/beep/mp3"
@@ -36,17 +41,18 @@ func main() {
 
 	for {
 		logrus.Info("getting current blood sugar")
-		mmol, err := ns.GetCurrentBloodSugar()
+		glucoseReading, err := ns.GetCurrentBloodSugar()
 		if err != nil {
 			logrus.WithError(err).Error("getting current blood sugar")
 			time.Sleep(15 * time.Second)
 			continue
 		}
 
-		logrus.WithField("mmol", mmol).Info("got blood sugar")
+		logrus.WithField("mmol", glucoseReading).Info("got blood sugar")
+		go sendToTinybird(*glucoseReading)
 
-		if mmol < 5.0 || mmol > 12.0 {
-			logrus.WithField("mmol", mmol).Info("alerting")
+		if glucoseReading.GlucoseMmol < 5.0 || glucoseReading.GlucoseMmol > 12.0 {
+			logrus.WithField("mmol", glucoseReading).Info("alerting")
 
 			if ackTime != nil {
 				if time.Since(*ackTime) < 30*time.Minute {
@@ -100,4 +106,42 @@ func startWeb() {
 	}
 
 	logrus.Fatal(s.ListenAndServe())
+}
+
+func sendToTinybird(gr nightscout.GlucoseReading) {
+	tinybirdToken := os.Getenv("TINYBIRD_TOKEN")
+	if tinybirdToken == "" {
+		return
+	}
+
+	jsonStr, err := json.Marshal(gr)
+	if err != nil {
+		logrus.WithError(err).Error("marshalling glucose reading")
+		return
+	}
+
+	req, err := http.NewRequest("POST", "https://api.tinybird.co/v0/events?name=nightscout", bytes.NewBuffer(jsonStr))
+	if err != nil {
+		logrus.WithError(err).Error("creating request")
+		return
+	}
+
+	req.Header.Set("Authorization", "Bearer "+os.Getenv("TINYBIRD_TOKEN"))
+	req.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{Timeout: time.Second * 10}
+	resp, err := client.Do(req)
+	if err != nil {
+		logrus.WithError(err).Error("sending to tinybird")
+		return
+	}
+	defer resp.Body.Close()
+
+	body, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		logrus.WithError(err).Error("reading response body")
+		return
+	}
+
+	logrus.WithField("response", string(body)).Info("sent to tinybird")
 }

@@ -8,10 +8,17 @@ import (
 	"time"
 )
 
-func (n *NightscoutInstance) GetCurrentBloodSugar() (float64, error) {
+type GlucoseReading struct {
+	Identifier  string    `json:"id"`
+	GlucoseMmol float64   `json:"glucose_mmol"`
+	GlucoseMgdl float64   `json:"glucose_mgdl"`
+	Time        time.Time `json:"timestamp"`
+}
+
+func (n *NightscoutInstance) GetCurrentBloodSugar() (*GlucoseReading, error) {
 	req, err := http.NewRequest("GET", n.bsUrl, nil)
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
 
 	req.Header.Set("Accept", "application/json")
@@ -19,28 +26,28 @@ func (n *NightscoutInstance) GetCurrentBloodSugar() (float64, error) {
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
 
 	defer resp.Body.Close()
 
 	if resp.StatusCode != 200 {
-		return 0, errors.New("Non-200 response from Nightscout")
+		return nil, errors.New("Non-200 response from Nightscout")
 	}
 
 	var nsResp NightscoutEntriesResponse
 
 	err = json.NewDecoder(resp.Body).Decode(&nsResp)
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
 
 	if nsResp.Status != 200 {
-		return 0, fmt.Errorf("Non-200 status code from Nightscout: %d", nsResp.Status)
+		return nil, fmt.Errorf("Non-200 status code from Nightscout: %d", nsResp.Status)
 	}
 
 	if len(nsResp.Result) == 0 {
-		return 0, errors.New("No results returned from Nightscout")
+		return nil, errors.New("No results returned from Nightscout")
 	}
 
 	nsResult := nsResp.Result[0]
@@ -48,16 +55,23 @@ func (n *NightscoutInstance) GetCurrentBloodSugar() (float64, error) {
 	// example "sysTime": "2023-12-28T12:59:16.000Z",
 	parsedNsTime, err := time.Parse(time.RFC3339, nsResult.SysTime)
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
 
 	if time.Since(parsedNsTime) > 15*time.Minute {
-		return 0, errors.New("Last reading not fresh, was more than 15 minutes ago")
+		return nil, errors.New("Last reading not fresh, was more than 15 minutes ago")
 	}
 
 	mmol := float64(nsResult.Sgv) / 18.0
 
-	return mmol, nil
+	gr := GlucoseReading{
+		Identifier:  nsResult.Identifier,
+		GlucoseMmol: mmol,
+		Time:        parsedNsTime,
+		GlucoseMgdl: float64(nsResult.Sgv),
+	}
+
+	return &gr, nil
 }
 
 type NightscoutEntriesResponse struct {
