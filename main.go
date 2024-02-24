@@ -5,7 +5,6 @@ import (
 	"embed"
 	_ "embed"
 	"encoding/json"
-	"fmt"
 	"io/ioutil"
 	"net/http"
 	"os"
